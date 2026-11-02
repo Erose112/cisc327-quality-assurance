@@ -1,11 +1,12 @@
 class Equipment:
-    def __init__(self, id, name, category, total_units, available_units, is_available=True):
+    def __init__(self, id, name, category, total_units, available_units, is_available=True, reason=None):
         self.id = id
         self.name = name
         self.category = category
         self.total_units = total_units
         self.available_units = available_units
         self.is_available = is_available  # False when out-of-service / under repair
+        self.reason = reason  # Short reason when out of service
 
     def to_dict(self):
         return {
@@ -15,4 +16,5 @@ class Equipment:
             "total_units": self.total_units,
             "available_units": self.available_units,
             "is_available": self.is_available,
+            "reason": self.reason,
         }
