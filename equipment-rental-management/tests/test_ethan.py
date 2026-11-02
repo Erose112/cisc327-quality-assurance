@@ -106,3 +106,143 @@ def test_get_equipment_nonexistent_id_returns_404(client):
     body = response.get_json()
     assert "error" in body
     assert "not found" in body["error"].lower()
+
+# Feature - Add Equipment
+def test_add_equipment_stores_price_and_description(client):
+    """New equipment records must store price and description."""
+    response = client.post(
+        "/equipment",
+        json={
+            "name": "Kayak",
+            "category": "Water",
+            "total_units": 2,
+            "price": 45.00,
+            "description": "Single-seat recreational kayak",
+        },
+    )
+    assert response.status_code == 201
+    created = response.get_json()
+    assert "price" in created, (
+        "Requires price on equipment records; "
+        f"response keys were: {sorted(created.keys())}"
+    )
+    assert "description" in created, (
+        "Requires description on equipment records; "
+        f"response keys were: {sorted(created.keys())}"
+    )
+    assert created["price"] == 45.00
+    assert created["description"] == "Single-seat recreational kayak"
+
+    get_resp = client.get(f"/equipment/{created['id']}")
+    assert get_resp.status_code == 200
+    data = get_resp.get_json()
+    assert data["price"] == 45.00
+    assert data["description"] == "Single-seat recreational kayak"
+
+# Feature - Add Equipment
+def test_add_equipment_via_form_persists_record(client):
+    """Form UI can add equipment and persist it for later lookup."""
+    response = client.post(
+        "/ui/equipment",
+        data={"name": "Canoe", "category": "Water", "total_units": "2"},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+
+    items = client.get("/equipment").get_json()
+    assert len(items) == 1
+    assert items[0]["name"] == "Canoe"
+    assert items[0]["category"] == "Water"
+    assert items[0]["total_units"] == 2
+    assert items[0]["available_units"] == 2
+
+# Feature - Edit Equipment
+def test_edit_equipment_updates_price_and_description(client):
+    """Editing equipment must update price and description in storage."""
+    created = _create_equipment(client, name="Tent", category="Camping", total_units=1)
+    equipment_id = created["id"]
+
+    update_resp = client.put(
+        f"/equipment/{equipment_id}",
+        json={"price": 30.00, "description": "4-person dome tent"},
+    )
+    assert update_resp.status_code == 200
+    updated = update_resp.get_json()
+    assert "price" in updated, (
+        "Requires editable price; "
+        f"response keys were: {sorted(updated.keys())}"
+    )
+    assert "description" in updated, (
+        "Requires editable description; "
+        f"response keys were: {sorted(updated.keys())}"
+    )
+    assert updated["price"] == 30.00
+    assert updated["description"] == "4-person dome tent"
+
+    get_resp = client.get(f"/equipment/{equipment_id}")
+    assert get_resp.status_code == 200
+    data = get_resp.get_json()
+    assert data["price"] == 30.00
+    assert data["description"] == "4-person dome tent"
+
+# Feature - Edit Equipment
+def test_edit_equipment_nonexistent_id_returns_404(client):
+    """Editing an unknown equipment ID must not invent a record."""
+    response = client.put(
+        "/equipment/9999",
+        json={"name": "Ghost Item", "category": "None"},
+    )
+    assert response.status_code == 404
+    body = response.get_json()
+    assert "error" in body
+    assert "not found" in body["error"].lower()
+    assert client.get("/equipment").get_json() == []
+
+# Feature - Edit Equipment
+def test_edit_equipment_via_form_updates_record(client):
+    """Form UI can edit equipment fields and persist the changes."""
+    created = _create_equipment(client, name="Old Name", category="Misc", total_units=1)
+    equipment_id = created["id"]
+
+    response = client.post(
+        f"/ui/equipment/{equipment_id}/edit",
+        data={
+            "name": "New Name",
+            "category": "Updated",
+            "total_units": "4",
+            "price": "25.00",
+            "description": "Updated gear",
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+
+    get_resp = client.get(f"/equipment/{equipment_id}")
+    assert get_resp.status_code == 200
+    data = get_resp.get_json()
+    assert data["name"] == "New Name"
+    assert data["category"] == "Updated"
+    assert data["total_units"] == 4
+
+# Feature - Delete Equipment
+def test_delete_equipment_nonexistent_id_returns_404(client):
+    """Deleting an unknown equipment ID must report not found."""
+    response = client.delete("/equipment/9999")
+    assert response.status_code == 404
+    body = response.get_json()
+    assert "error" in body
+    assert "not found" in body["error"].lower()
+
+# Feature - Delete Equipment
+def test_delete_equipment_via_form_removes_record(client):
+    """Form UI can remove equipment from subsequent lookups."""
+    created = _create_equipment(client, name="Skis", category="Snow", total_units=2)
+    equipment_id = created["id"]
+
+    response = client.post(
+        f"/ui/equipment/{equipment_id}/delete",
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert client.get(f"/equipment/{equipment_id}").status_code == 404
+    assert client.get("/equipment").get_json() == []
