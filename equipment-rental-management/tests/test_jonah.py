@@ -87,3 +87,110 @@ def test_renter_operations_for_missing_id_return_not_found(client):
         json={"name": "Nobody", "email": "nobody@example.com"},
     ).status_code == 404
     assert client.delete("/renters/999").status_code == 404
+
+
+def test_rental_list_is_empty_initially(client):
+    response = client.get("/rentals")
+
+    assert response.status_code == 200
+    assert response.get_json() == []
+
+
+def test_checkout_creates_rental_and_reduces_equipment_availability(client):
+    equipment = client.post(
+        "/equipment",
+        json={"name": "Kayak", "category": "Boats", "total_units": 2},
+    ).get_json()
+    renter = client.post(
+        "/renters",
+        json={"name": "Alex Brown", "email": "alex@example.com"},
+    ).get_json()
+
+    response = client.post(
+        "/rentals",
+        json={"equipment_id": equipment["id"], "renter_id": renter["id"]},
+    )
+
+    assert response.status_code == 201
+    rental = response.get_json()
+    assert rental["equipment_id"] == equipment["id"]
+    assert rental["renter_id"] == renter["id"]
+    assert rental["return_date"] is None
+    assert rental["deposit_amount"] == 0.0
+    assert rental["due_date"] is not None
+
+    availability = client.get(f"/equipment/{equipment['id']}/availability")
+    assert availability.status_code == 200
+    assert availability.get_json()["available_units"] == 1
+
+
+def test_rental_list_can_filter_by_equipment_id(client):
+    first_equipment = client.post(
+        "/equipment",
+        json={"name": "Kayak", "category": "Boats", "total_units": 1},
+    ).get_json()
+    second_equipment = client.post(
+        "/equipment",
+        json={"name": "Bike", "category": "Cycles", "total_units": 1},
+    ).get_json()
+    renter = client.post(
+        "/renters",
+        json={"name": "Alex Brown", "email": "alex@example.com"},
+    ).get_json()
+
+    client.post(
+        "/rentals",
+        json={"equipment_id": first_equipment["id"], "renter_id": renter["id"]},
+    )
+    client.post(
+        "/rentals",
+        json={"equipment_id": second_equipment["id"], "renter_id": renter["id"]},
+    )
+
+    response = client.get(f"/rentals?equipment_id={first_equipment['id']}")
+
+    assert response.status_code == 200
+    rentals = response.get_json()
+    assert len(rentals) == 1
+    assert rentals[0]["equipment_id"] == first_equipment["id"]
+
+
+def test_rental_list_can_filter_by_renter_id(client):
+    equipment = client.post(
+        "/equipment",
+        json={"name": "Kayak", "category": "Boats", "total_units": 2},
+    ).get_json()
+    first_renter = client.post(
+        "/renters",
+        json={"name": "Alex Brown", "email": "alex@example.com"},
+    ).get_json()
+    second_renter = client.post(
+        "/renters",
+        json={"name": "Sam Green", "email": "sam@example.com"},
+    ).get_json()
+
+    client.post(
+        "/rentals",
+        json={"equipment_id": equipment["id"], "renter_id": first_renter["id"]},
+    )
+    client.post(
+        "/rentals",
+        json={"equipment_id": equipment["id"], "renter_id": second_renter["id"]},
+    )
+
+    response = client.get(f"/rentals?renter_id={first_renter['id']}")
+
+    assert response.status_code == 200
+    rentals = response.get_json()
+    assert len(rentals) == 1
+    assert rentals[0]["renter_id"] == first_renter["id"]
+
+
+def test_checkout_for_missing_equipment_returns_not_found(client):
+    response = client.post(
+        "/rentals",
+        json={"equipment_id": 999, "renter_id": 1},
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {"error": "Equipment not found"}
