@@ -382,3 +382,57 @@ def test_check_availability_nonexistent_id_returns_404(client):
     body = response.get_json()
     assert "error" in body
     assert "not found" in body["error"].lower()
+
+# Feature - Set Equipment Availability/Status
+def test_clear_out_of_service_restores_rentable_pool(client):
+    """Staff clearing out-of-service removes reason and allows checkout again."""
+    created = _create_equipment(client, name="Paddle", category="Water", total_units=1)
+    equipment_id = created["id"]
+    renter = client.post(
+        "/renters",
+        json={"name": "Jordan", "email": "jordan@example.com"},
+    ).get_json()
+
+    client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": False, "reason": "Blade chipped"},
+    )
+
+    clear_resp = client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": True},
+    )
+    assert clear_resp.status_code == 200
+    cleared = clear_resp.get_json()
+    assert cleared["is_available"] is True
+    assert cleared.get("reason") is None
+
+    checkout_resp = client.post(
+        "/rentals",
+        json={"equipment_id": equipment_id, "renter_id": renter["id"]},
+    )
+    assert checkout_resp.status_code == 201
+
+# Feature - Set Equipment Availability/Status
+def test_out_of_service_reason_can_be_updated(client):
+    """Staff can replace the out-of-service reason without clearing the flag."""
+    created = _create_equipment(client, name="Bike", category="Land", total_units=1)
+    equipment_id = created["id"]
+
+    client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": False, "reason": "Flat tire"},
+    )
+
+    update_resp = client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": False, "reason": "Wheel replacement delayed"},
+    )
+    assert update_resp.status_code == 200
+    data = update_resp.get_json()
+    assert data["is_available"] is False
+    assert data["reason"] == "Wheel replacement delayed"
+
+    get_resp = client.get(f"/equipment/{equipment_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.get_json()["reason"] == "Wheel replacement delayed"

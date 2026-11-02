@@ -62,16 +62,17 @@ def set_equipment_status(equipment_id):
     """Mark equipment as available or out-of-service (e.g. under repair).
 
     Set is_available=false to take a piece of equipment out of service.
-
-    NOTE (intentional bug): checkout_equipment() in rentals.py does NOT check
-    this flag. Out-of-service equipment can still be checked out — a test that
-    marks equipment unavailable and then attempts a checkout will reveal this.
+    Optional reason is stored when provided; clearing availability resets reason.
     """
     item = store.equipment.get(equipment_id)
     if item is None:
         return jsonify({"error": "Equipment not found"}), 404
     data = request.get_json()
     item.is_available = data["is_available"]
+    if item.is_available:
+        item.reason = None
+    elif "reason" in data:
+        item.reason = data["reason"]
     return jsonify(item.to_dict())
 
 

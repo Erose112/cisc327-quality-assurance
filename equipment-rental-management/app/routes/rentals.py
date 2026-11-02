@@ -26,7 +26,6 @@ def checkout_equipment():
     item = store.equipment.get(data["equipment_id"])
     if item is None:
         return jsonify({"error": "Equipment not found"}), 404
-
     if data["renter_id"] not in store.renters:
         return jsonify({"error": "Renter not found"}), 404
     if not item.is_available:
