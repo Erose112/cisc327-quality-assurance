@@ -246,3 +246,139 @@ def test_delete_equipment_via_form_removes_record(client):
     assert response.status_code == 200
     assert client.get(f"/equipment/{equipment_id}").status_code == 404
     assert client.get("/equipment").get_json() == []
+
+# Feature - Set Equipment Availability/Status
+def test_set_equipment_unavailable_persists(client):
+    """Marking equipment unavailable is stored and visible on later GET."""
+    created = _create_equipment(client, name="Bike", category="Land", total_units=2)
+    equipment_id = created["id"]
+
+    patch_resp = client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": False},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.get_json()["is_available"] is False
+
+    get_resp = client.get(f"/equipment/{equipment_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.get_json()["is_available"] is False
+
+# Feature - Set Equipment Availability/Status
+def test_set_equipment_out_of_service_stores_reason(client):
+    """Out-of-service equipment must store a short reason."""
+    created = _create_equipment(client, name="Kayak", category="Water", total_units=1)
+    equipment_id = created["id"]
+
+    response = client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": False, "reason": "Hull crack under repair"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "reason" in data, (
+        "Requires an out-of-service reason; "
+        f"response keys were: {sorted(data.keys())}"
+    )
+    assert data["reason"] == "Hull crack under repair"
+
+    get_resp = client.get(f"/equipment/{equipment_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.get_json()["reason"] == "Hull crack under repair"
+
+# Feature - Set Equipment Availability/Status
+def test_set_equipment_out_of_service_blocks_checkout(client):
+    """Out-of-service equipment must be removed from the rentable pool."""
+    created = _create_equipment(client, name="Helmet", category="Safety", total_units=1)
+    equipment_id = created["id"]
+    renter = client.post(
+        "/renters",
+        json={"name": "Alex", "email": "alex@example.com"},
+    ).get_json()
+
+    patch_resp = client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": False, "reason": "Safety recall"},
+    )
+    assert patch_resp.status_code == 200
+
+    checkout_resp = client.post(
+        "/rentals",
+        json={"equipment_id": equipment_id, "renter_id": renter["id"]},
+    )
+    assert checkout_resp.status_code in (400, 409)
+    assert client.get("/rentals").get_json() == []
+    assert client.get(f"/equipment/{equipment_id}").get_json()["available_units"] == 1
+
+# Feature - Set Equipment Availability/Status
+def test_set_equipment_status_nonexistent_id_returns_404(client):
+    """Setting status on an unknown equipment ID must report not found."""
+    response = client.patch(
+        "/equipment/9999/status",
+        json={"is_available": False},
+    )
+    assert response.status_code == 404
+    body = response.get_json()
+    assert "error" in body
+    assert "not found" in body["error"].lower()
+
+# Feature - Check Equipment Availability
+def test_check_availability_reflects_out_of_service(client):
+    """Availability must show equipment as unavailable after out-of-service."""
+    created = _create_equipment(client, name="Skis", category="Snow", total_units=2)
+    equipment_id = created["id"]
+
+    client.patch(
+        f"/equipment/{equipment_id}/status",
+        json={"is_available": False, "reason": "Binding broken"},
+    )
+
+    response = client.get(f"/equipment/{equipment_id}/availability")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["is_available"] is False
+
+# Feature - Check Equipment Availability
+def test_check_availability_exposes_required_rental_status(client):
+    """Availability must include a rental status from the allowed set."""
+    created = _create_equipment(client, name="Snowboard", category="Snow", total_units=1)
+
+    response = client.get(f"/equipment/{created['id']}/availability")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "status" in data, (
+        "Requires a rental status (Available, Rented, On-Hold, Overdue); "
+        f"response keys were: {sorted(data.keys())}"
+    )
+    assert data["status"] in VALID_RENTAL_STATUSES
+
+# Feature - Check Equipment Availability
+def test_check_availability_updates_after_checkout(client):
+    """Available units decrease after a successful rental checkout."""
+    created = _create_equipment(client, name="Ladder", category="Climbing", total_units=3)
+    equipment_id = created["id"]
+    renter = client.post(
+        "/renters",
+        json={"name": "Sam", "email": "sam@example.com"},
+    ).get_json()
+
+    checkout_resp = client.post(
+        "/rentals",
+        json={"equipment_id": equipment_id, "renter_id": renter["id"]},
+    )
+    assert checkout_resp.status_code == 201
+
+    response = client.get(f"/equipment/{equipment_id}/availability")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["available_units"] == 2
+    assert data["total_units"] == 3
+
+# Feature - Check Equipment Availability
+def test_check_availability_nonexistent_id_returns_404(client):
+    """Checking availability for an unknown ID must report not found."""
+    response = client.get("/equipment/9999/availability")
+    assert response.status_code == 404
+    body = response.get_json()
+    assert "error" in body
+    assert "not found" in body["error"].lower()
